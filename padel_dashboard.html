@@ -347,7 +347,7 @@
     <div class="cards" id="cards"></div>
 
     <div class="panel">
-      <h2>Leuke feiten</h2>
+      <h2>Extra statistieken</h2>
       <div id="kpiCards"></div>
     </div>
 
@@ -1416,7 +1416,7 @@ function fillKpiCards(a) {
       title: 'Tegenstanders',
       tiles: [
         { cls: 'card-amber', label: 'Sterkste verslagen tegenstander', value: a.giantKilling ? `${a.giantKilling.name} (${rat(a.giantKilling.rating)})` : '-' },
-        { cls: 'card-blue', label: 'Rating-voorsprong per wedstrijd', value: a.avgRatingGap != null ? `${a.avgRatingGap >= 0 ? '+' : ''}${rat(a.avgRatingGap)} (zwakkere paren: ${a.weakerOppCount}x, sterkere paren: ${a.strongerOppCount}x)` : '-' },
+        { cls: 'card-blue', label: 'Rating-voorsprong per wedstrijd', value: a.avgRatingGap != null ? `${a.avgRatingGap >= 0 ? '+' : ''}${rat(a.avgRatingGap)} (zwakkere tegenstanders: ${a.weakerOppCount}x, sterkere tegenstanders: ${a.strongerOppCount}x)` : '-' },
       ],
     },
     {
