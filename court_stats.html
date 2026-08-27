@@ -161,6 +161,15 @@
   }
   .file-btn:active { transform: scale(0.98); }
   .file-btn input[type="file"] { display: none; }
+  #profileSelect {
+    height: 34px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 0 8px;
+    font-size: 13px;
+    color: var(--text);
+    background: var(--card);
+  }
   #status { font-size: 13px; color: var(--text-secondary); }
   #status.error { color: var(--loss); }
   #status.ok { color: var(--accent); }
@@ -238,11 +247,19 @@
     color: var(--text-secondary);
   }
   .match-card-header .duration { color: var(--text-muted); margin-right: 6px; }
+  .match-card-header > span:last-child {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
   .match-card-header .diff-badge {
     font-size: 11px;
     font-weight: 600;
     padding: 2px 8px;
     border-radius: 999px;
+    white-space: nowrap;
   }
   .diff-badge.improve { background: var(--tint-teal-bg); color: var(--tint-teal-ink); }
   .diff-badge.decline { background: var(--tint-coral-bg); color: var(--tint-coral-ink); }
@@ -314,7 +331,7 @@
       <h1>🎾 Court Stats</h1>
       <p class="sub">Plak elke week je nieuwste export hieronder. Je gegevens blijven bewaard in deze pagina, ook als je hem sluit.</p>
     </div>
-    <button class="theme-switch" id="themeToggle" aria-label="Wissel tussen licht en donker modus" aria-pressed="false">
+    <button class="theme-switch" id="themeToggle" aria-label="Wissel tussen licht en donker modus" aria-pressed="false" style="margin-left:auto;">
       <span class="track-icon track-icon-sun" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg></span>
       <span class="track-icon track-icon-moon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M20 14.5A8.5 8.5 0 0 1 9.5 4a8.5 8.5 0 1 0 10.5 10.5Z"/></svg></span>
       <span class="knob"></span>
@@ -329,8 +346,13 @@
         <button class="secondary" id="editBtn" style="padding: 6px 14px; font-size: 13px;">Bewerken</button>
       </div>
     </div>
+    <div id="profileBar" style="display:none; align-items:center; gap: 8px; margin-top: 10px; flex-wrap: wrap;">
+      <label for="profileSelect" style="font-size: 13px; color: var(--text-secondary);">Profiel:</label>
+      <select id="profileSelect"></select>
+      <button class="secondary" id="deleteProfileBtn" style="padding: 6px 14px; font-size: 13px;">Verwijder profiel</button>
+    </div>
     <div id="inputPanelBody" style="margin-top: 12px;">
-      <textarea id="rawInput" placeholder="Plak hier de volledige raw data van de website (elke keer de complete export, niet alleen de nieuwe wedstrijden)..."></textarea>
+      <textarea id="rawInput" placeholder="Plak hier de volledige raw data van de website (elke keer de complete export, niet alleen de nieuwe wedstrijden). De naam van de speler wordt automatisch herkend."></textarea>
       <div class="row">
         <button id="parseBtn">Verwerk data</button>
         <label class="file-btn">
@@ -454,7 +476,6 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <script>
-const ME = "Lars van Hommel";
 const RATING_RE = /^\(-?\d+,\d+\)$/;
 const RATINGDIFF_RE = /^-?\d+,\d+$/;
 const DURATION_RE = /^\d+h \d+m$|^\d+m$/;
@@ -480,11 +501,14 @@ function readPlayer(lines, idx) {
   return [lines[idx], null, idx + 1];
 }
 
-function parseRaw(text) {
+// Structurele pass: leest alle wedstrijden uit de tekst zonder aan te nemen wie de
+// accounthouder is. Team1/team2 blijven hier gewoon "team1"/"team2" (nog niet vertaald
+// naar "ik"/"tegenstander"), zodat dezelfde export voor eender wie te gebruiken is.
+function parseStructural(text) {
   const lines = text.split(/\r\n|\r|\n/).map(l => l.replace(/[\r\n]+$/, ''));
   const n = lines.length;
   let i = 0;
-  const matches = [];
+  const raw = [];
   let errorCount = 0;
 
   while (i < n) {
@@ -532,25 +556,6 @@ function parseRaw(text) {
       let location = null;
       if (i < n && !isTitleStart(lines, i)) { location = lines[i]; i++; }
 
-      const team1Names = [p1a, p1b], team2Names = [p2a, p2b];
-      let mySide;
-      if (team1Names.includes(ME)) mySide = 1;
-      else if (team2Names.includes(ME)) mySide = 2;
-      else throw new Error('speler niet gevonden');
-
-      const sets = [];
-      for (let k = 0; k + 1 < scores.length; k += 2) sets.push([scores[k], scores[k + 1]]);
-
-      const won = resultLetter === 'W';
-      const myTeam = mySide === 1 ? team1 : team2;
-      const oppTeam = mySide === 1 ? team2 : team1;
-      const partnerEntry = myTeam.find(([p]) => p !== ME);
-      const partner = partnerEntry ? partnerEntry[0] : null;
-      const partnerRatingRaw = partnerEntry ? partnerEntry[1] : null;
-      const partnerRating = partnerRatingRaw ? parseFloat(partnerRatingRaw.replace(/[()]/g, '').replace(',', '.')) : null;
-      const myRatingRaw = myTeam.find(([p]) => p === ME)[1];
-      const myRating = myRatingRaw ? parseFloat(myRatingRaw.replace(/[()]/g, '').replace(',', '.')) : null;
-
       let dateIso = null;
       if (date) {
         const [, dstr] = date.split(' ');
@@ -558,23 +563,12 @@ function parseRaw(text) {
         dateIso = `${yyyy}-${mm.padStart(2, '0')}-${dd.padStart(2, '0')}`;
       }
 
-      const mySide_ = mySide; // (voor duidelijkheid hieronder)
-      const myTeamSideIdx = mySide === 1 ? 0 : 1;
-      const oppTeamSideIdx = 1 - myTeamSideIdx;
-      const mySets = sets.map(s => [s[myTeamSideIdx], s[oppTeamSideIdx]]);
-      const statusSide = status == null ? null : (statusTeam === mySide ? 'me' : 'opp');
+      const sets = [];
+      for (let k = 0; k + 1 < scores.length; k += 2) sets.push([scores[k], scores[k + 1]]);
 
-      matches.push({
-        title, date, dateIso, location, partner, partnerRating,
-        myRating, won, status, statusSide,
-        ratingDiff: ratingDiff ? parseFloat(ratingDiff.replace(',', '.')) : null,
-        tournament: title.split('  ')[0].trim(),
-        opponents: oppTeam.map(([p, r]) => ({
-          name: p,
-          rating: r ? parseFloat(r.replace(/[()]/g, '').replace(',', '.')) : null,
-        })),
-        duration,
-        sets: mySets,
+      raw.push({
+        title, duration, ratingDiff, date, dateIso, location,
+        team1, team2, resultLetter, status, statusTeam, sets,
       });
     } catch (e) {
       errorCount++;
@@ -591,7 +585,89 @@ function parseRaw(text) {
       }
     }
   }
-  return { matches, errorCount };
+  return { raw, errorCount };
+}
+
+// Herkent wiens exportdata dit is: de naam die (vrijwel) in élke wedstrijd voorkomt.
+function detectPlayerName(rawMatches) {
+  const counts = {};
+  for (const m of rawMatches) {
+    const namesInMatch = new Set([...m.team1, ...m.team2].map(([p]) => p).filter(Boolean));
+    for (const name of namesInMatch) counts[name] = (counts[name] || 0) + 1;
+  }
+  let best = null, bestCount = 0;
+  for (const [name, count] of Object.entries(counts)) {
+    if (count > bestCount) { best = name; bestCount = count; }
+  }
+  return best;
+}
+
+function finalizeMatch(m, ME) {
+  const team1Names = m.team1.map(([p]) => p);
+  const team2Names = m.team2.map(([p]) => p);
+  let mySide;
+  if (team1Names.includes(ME)) mySide = 1;
+  else if (team2Names.includes(ME)) mySide = 2;
+  else return null;
+
+  const won = m.resultLetter === 'W';
+  const myTeam = mySide === 1 ? m.team1 : m.team2;
+  const oppTeam = mySide === 1 ? m.team2 : m.team1;
+  const partnerEntry = myTeam.find(([p]) => p !== ME);
+  const partner = partnerEntry ? partnerEntry[0] : null;
+  const partnerRatingRaw = partnerEntry ? partnerEntry[1] : null;
+  const partnerRating = partnerRatingRaw ? parseFloat(partnerRatingRaw.replace(/[()]/g, '').replace(',', '.')) : null;
+  const myRatingRaw = myTeam.find(([p]) => p === ME)[1];
+  const myRating = myRatingRaw ? parseFloat(myRatingRaw.replace(/[()]/g, '').replace(',', '.')) : null;
+
+  const myTeamSideIdx = mySide === 1 ? 0 : 1;
+  const oppTeamSideIdx = 1 - myTeamSideIdx;
+  const mySets = m.sets.map(s => [s[myTeamSideIdx], s[oppTeamSideIdx]]);
+  const statusSide = m.status == null ? null : (m.statusTeam === mySide ? 'me' : 'opp');
+
+  return {
+    title: m.title, date: m.date, dateIso: m.dateIso, location: m.location,
+    partner, partnerRating, myRating, won, status: m.status, statusSide,
+    ratingDiff: m.ratingDiff ? parseFloat(m.ratingDiff.replace(',', '.')) : null,
+    tournament: m.title.split('  ')[0].trim(),
+    opponents: oppTeam.map(([p, r]) => ({
+      name: p,
+      rating: r ? parseFloat(r.replace(/[()]/g, '').replace(',', '.')) : null,
+    })),
+    duration: m.duration,
+    sets: mySets,
+  };
+}
+
+function parseRaw(text, meName) {
+  const { raw, errorCount } = parseStructural(text);
+  const ME = meName || detectPlayerName(raw);
+
+  let notFoundCount = 0;
+  const matches = [];
+  for (const m of raw) {
+    const finalized = finalizeMatch(m, ME);
+    if (finalized) matches.push(finalized);
+    else notFoundCount++;
+  }
+
+  // Exacte duplicaten eruit filteren (dezelfde wedstrijd die letterlijk twee keer in de
+  // export voorkomt), met behoud van de eerste (nieuwste) van elk duplicaat-paar.
+  const seenKeys = new Set();
+  const dedupedMatches = [];
+  let duplicateCount = 0;
+  for (const m of matches) {
+    const key = [
+      m.title, m.date, m.partner,
+      m.opponents.map(o => o.name).sort().join(','),
+      JSON.stringify(m.sets),
+    ].join('|');
+    if (seenKeys.has(key)) { duplicateCount++; continue; }
+    seenKeys.add(key);
+    dedupedMatches.push(m);
+  }
+
+  return { matches: dedupedMatches, errorCount: errorCount + notFoundCount, duplicateCount, meName: ME };
 }
 
 function analyze(matches, allMatches) {
@@ -599,20 +675,21 @@ function analyze(matches, allMatches) {
   const withDate = matches.filter(m => m.dateIso).sort((a, b) => a.dateIso.localeCompare(b.dateIso));
   const ratingTimeline = withDate.filter(m => m.myRating != null).map(m => ({ date: m.dateIso, rating: Math.round(m.myRating * 10000) / 10000 }));
 
-  // "matches" is in original export order (nieuwste eerst). De rating naast een speler
-  // is de rating VOOR die wedstrijd; de echte huidige rating is die waarde plus de
-  // ratingwijziging van diezelfde (meest recente) wedstrijd.
-  let currentRating = null;
-  let currentRatingDate = null;
+  // Robuuste, volgorde-onafhankelijke berekening van de huidige rating: elk profiel start
+  // op een vaste basisrating van 9,0000 (bevestigd tegen meerdere officiële KNLTB-profielen),
+  // en de huidige rating is die basis plus de som van alle ratingmutaties tot nu toe. Dit is
+  // bewust NIET gebaseerd op "de laatste wedstrijd" via bestandsvolgorde of datum, want beide
+  // bleken onbetrouwbaar: de exportvolgorde is niet altijd chronologisch, en bij meerdere
+  // wedstrijden op precies dezelfde dag is de datum alleen niet genoeg om de juiste te kiezen.
+  // Optellen is daarentegen volgorde-onafhankelijk en dus altijd correct.
+  const RATING_BASELINE = 9.0;
+  let ratingDiffSum = 0;
   for (const m of matches) {
-    if (m.myRating != null) {
-      currentRating = m.ratingDiff != null
-        ? Math.round((m.myRating + m.ratingDiff) * 10000) / 10000
-        : m.myRating;
-      currentRatingDate = m.dateIso;
-      break;
-    }
+    if (m.ratingDiff != null) ratingDiffSum += m.ratingDiff;
   }
+  const hasRatedMatch = withDate.some(m => m.myRating != null);
+  const currentRating = hasRatedMatch ? Math.round((RATING_BASELINE + ratingDiffSum) * 10000) / 10000 : null;
+  const currentRatingDate = withDate.length ? withDate[withDate.length - 1].dateIso : null;
   if (currentRating !== null && currentRatingDate) {
     const last = ratingTimeline[ratingTimeline.length - 1];
     if (!last || last.rating !== currentRating) {
@@ -819,19 +896,27 @@ function analyze(matches, allMatches) {
   }
   const seasonOrder = Object.keys(seasonMap).sort();
 
-  // Start-/eindrating per seizoen robuust (volgorde-onafhankelijk) terugrekenen vanaf de
-  // betrouwbare huidige rating: eind van een seizoen = start + som van alle ratingmutaties
-  // in dat seizoen, ongeacht de volgorde van wedstrijden binnen één dag.
+  // Start-/eindrating per seizoen: voorwaarts optellen vanaf de bevestigde startrating van
+  // een nieuw KNLTB-ratingprofiel (9,0000 — tweemaal bevestigd tegen de officiële site).
+  // Dit is bewust NIET afhankelijk van welke wedstrijd toevallig "eerste/laatste van de dag"
+  // is (dat gaf eerder fouten bij meerdere wedstrijden op één dag). Alleen het lopende
+  // (laatste, nog actieve) seizoen wordt aan het eind geankerd op de rechtstreeks afgeleide
+  // huidige rating in plaats van op de opgetelde som, omdat een som over tientallen losse
+  // mutaties een klein, niet te herleiden verschil kan opbouwen dat bij een enkel recent
+  // record niet optreedt.
   const seasonBoundaryRatings = {};
-  let runningEnd = currentRating;
-  for (let idx = seasonOrder.length - 1; idx >= 0; idx--) {
+  let running = 9.0;
+  for (let idx = 0; idx < seasonOrder.length; idx++) {
     const s = seasonOrder[idx];
     const data = seasonMap[s];
     const sumDiff = data.matches.reduce((sum, m) => sum + (m.ratingDiff != null ? m.ratingDiff : 0), 0);
-    const end = runningEnd;
-    const start = end != null ? Math.round((end - sumDiff) * 10000) / 10000 : null;
-    seasonBoundaryRatings[s] = { start, end: end != null ? Math.round(end * 10000) / 10000 : null };
-    runningEnd = start;
+    const start = Math.round(running * 10000) / 10000;
+    const isLastSeason = idx === seasonOrder.length - 1;
+    const end = (isLastSeason && currentRating != null)
+      ? Math.round(currentRating * 10000) / 10000
+      : Math.round((running + sumDiff) * 10000) / 10000;
+    seasonBoundaryRatings[s] = { start, end };
+    running = end;
   }
 
   const seasons = seasonOrder.map(s => {
@@ -972,12 +1057,18 @@ function analyze(matches, allMatches) {
     longestBreakDays, longestBreakStart, longestBreakEnd,
     avgGamesPerSet, avgGamesPerMatch,
     mostVolatileMonth,
-    history: matches,
+    history: [...matches].sort((a, b) => {
+      if (!a.dateIso && !b.dateIso) return 0;
+      if (!a.dateIso) return 1;
+      if (!b.dateIso) return -1;
+      return b.dateIso.localeCompare(a.dateIso);
+    }),
   };
 }
 
 let ratingChartInstance = null, monthlyChartInstance = null, ratingDeltaChartInstance = null;
 let currentTheme = 'light';
+let activeProfileName = null;
 let lastAnalysis = null;
 let tableSort = {
   partnerTable: { field: 'total', dir: 'desc' },
@@ -1262,7 +1353,7 @@ function renderMatchCards(list) {
     const oppSetScores = m.sets.map(s => s[1]);
 
     const myPlayersHtml = `
-      <div class="player-row">${ME} <span class="rating">(${rat(m.myRating)})</span></div>
+      <div class="player-row">${activeProfileName} <span class="rating">(${rat(m.myRating)})</span></div>
       <div class="player-row">${m.partner || ''} <span class="rating">(${rat(m.partnerRating)})</span></div>
     `;
     const oppPlayersHtml = m.opponents.map(o => `<div class="player-row">${o.name} <span class="rating">(${rat(o.rating)})</span></div>`).join('');
@@ -1416,7 +1507,7 @@ function fillKpiCards(a) {
       title: 'Tegenstanders',
       tiles: [
         { cls: 'card-amber', label: 'Sterkste verslagen tegenstander', value: a.giantKilling ? `${a.giantKilling.name} (${rat(a.giantKilling.rating)})` : '-' },
-        { cls: 'card-blue', label: 'Rating-voorsprong per wedstrijd', value: a.avgRatingGap != null ? `${a.avgRatingGap >= 0 ? '+' : ''}${rat(a.avgRatingGap)} (zwakkere tegenstanders: ${a.weakerOppCount}x, sterkere tegenstanders: ${a.strongerOppCount}x)` : '-' },
+        { cls: 'card-blue', label: 'Rating-voorsprong per wedstrijd', value: a.avgRatingGap != null ? `${a.avgRatingGap >= 0 ? '+' : ''}${rat(a.avgRatingGap)} (zwakkere paren: ${a.weakerOppCount}x, sterkere paren: ${a.strongerOppCount}x)` : '-' },
       ],
     },
     {
@@ -1486,26 +1577,55 @@ function expandInputPanel() {
   document.getElementById('collapseBar').style.display = 'none';
 }
 
+async function loadProfilesStore() {
+  try {
+    const r = await window.storage.get('padel-profiles', false);
+    return r && r.value ? JSON.parse(r.value) : {};
+  } catch (e) { return {}; }
+}
+async function saveProfilesStore(profiles) {
+  try { await window.storage.set('padel-profiles', JSON.stringify(profiles), false); } catch (e) {}
+}
+async function setActiveProfileName(name) {
+  try { await window.storage.set('padel-active-profile', name, false); } catch (e) {}
+}
+async function getStoredActiveProfileName() {
+  try {
+    const r = await window.storage.get('padel-active-profile', false);
+    return r && r.value ? r.value : null;
+  } catch (e) { return null; }
+}
+function populateProfileSelect(profiles, selected) {
+  const names = Object.keys(profiles).sort();
+  const sel = document.getElementById('profileSelect');
+  sel.innerHTML = names.map(name =>
+    `<option value="${name.replace(/"/g, '&quot;')}"${name === selected ? ' selected' : ''}>${name}</option>`
+  ).join('');
+  document.getElementById('profileBar').style.display = names.length ? 'flex' : 'none';
+}
+
 async function processText(text, { save } = { save: true }) {
-  const { matches, errorCount } = parseRaw(text);
-  if (matches.length === 0) {
-    setStatus('Kon geen wedstrijden herkennen in deze data.', 'error');
+  const { matches, errorCount, duplicateCount, meName } = parseRaw(text);
+  if (matches.length === 0 || !meName) {
+    setStatus('Kon geen wedstrijden of speler herkennen in deze data.', 'error');
     return;
   }
+  activeProfileName = meName;
   const walkoverCount = matches.filter(m => m.status === 'Walkover').length;
   const countedMatches = matches.filter(m => m.status !== 'Walkover');
   const analysis = analyze(countedMatches, matches);
   render(analysis);
-  let okMsg = `${matches.length} wedstrijden gevonden, ${countedMatches.length} meegeteld (${walkoverCount} walkovers uitgesloten van de statistieken)`;
+  let okMsg = `${meName}: ${matches.length} wedstrijden gevonden, ${countedMatches.length} meegeteld (${walkoverCount} walkovers uitgesloten van de statistieken)`;
+  if (duplicateCount) okMsg += ` (${duplicateCount} dubbele regel${duplicateCount > 1 ? 's' : ''} verwijderd)`;
   okMsg += errorCount ? `. ${errorCount} regels niet herkend en overgeslagen.` : '.';
   setStatus(okMsg, 'ok');
-  collapseInputPanel(`${countedMatches.length} wedstrijden verwerkt`);
+  collapseInputPanel(`${meName} \u2013 ${countedMatches.length} wedstrijden verwerkt`);
   if (save) {
-    try {
-      await window.storage.set('padel-raw-text', text, false);
-    } catch (e) {
-      setStatus(okMsg + ' Let op: opslaan is mislukt, dus dit is niet bewaard voor volgende keer.', 'error');
-    }
+    const profiles = await loadProfilesStore();
+    profiles[meName] = text;
+    await saveProfilesStore(profiles);
+    await setActiveProfileName(meName);
+    populateProfileSelect(profiles, meName);
   }
 }
 
@@ -1534,24 +1654,82 @@ document.getElementById('editBtn').addEventListener('click', () => {
   expandInputPanel();
 });
 
+document.getElementById('profileSelect').addEventListener('change', async (e) => {
+  const name = e.target.value;
+  const profiles = await loadProfilesStore();
+  const text = profiles[name];
+  if (!text) return;
+  document.getElementById('rawInput').value = text;
+  await processText(text, { save: false });
+  await setActiveProfileName(name);
+  populateProfileSelect(profiles, name);
+  setStatus(`${name} geladen.`, 'ok');
+  collapseInputPanel(`${name} \u2013 profiel geladen`);
+});
+
+document.getElementById('deleteProfileBtn').addEventListener('click', async () => {
+  if (!activeProfileName) return;
+  const naam = activeProfileName;
+  const profiles = await loadProfilesStore();
+  delete profiles[naam];
+  await saveProfilesStore(profiles);
+  const remaining = Object.keys(profiles);
+  if (remaining.length) {
+    const next = remaining[0];
+    await setActiveProfileName(next);
+    document.getElementById('rawInput').value = profiles[next];
+    await processText(profiles[next], { save: false });
+    populateProfileSelect(profiles, next);
+  } else {
+    await setActiveProfileName('');
+    activeProfileName = null;
+    document.getElementById('rawInput').value = '';
+    document.getElementById('dashboard').style.display = 'none';
+    document.getElementById('emptyState').style.display = 'block';
+    document.getElementById('profileBar').style.display = 'none';
+    expandInputPanel();
+  }
+  setStatus(`Profiel "${naam}" verwijderd.`, 'ok');
+});
+
 document.getElementById('clearBtn').addEventListener('click', async () => {
   try {
     await window.storage.delete('padel-raw-text', false);
+    await window.storage.delete('padel-profiles', false);
+    await window.storage.delete('padel-active-profile', false);
   } catch (e) {}
+  activeProfileName = null;
   document.getElementById('rawInput').value = '';
   document.getElementById('dashboard').style.display = 'none';
   document.getElementById('emptyState').style.display = 'block';
+  document.getElementById('profileBar').style.display = 'none';
   expandInputPanel();
-  setStatus('Opgeslagen data gewist.', 'ok');
+  setStatus('Alle opgeslagen data gewist.', 'ok');
 });
 
 (async function init() {
   await initTheme();
   try {
-    const result = await window.storage.get('padel-raw-text', false);
-    if (result && result.value) {
-      document.getElementById('rawInput').value = result.value;
-      await processText(result.value, { save: false });
+    let profiles = await loadProfilesStore();
+    if (Object.keys(profiles).length === 0) {
+      // migratie vanuit de oude, enkelvoudige opslag (vóór profielen bestonden)
+      const legacy = await window.storage.get('padel-raw-text', false);
+      if (legacy && legacy.value) {
+        const { meName } = parseRaw(legacy.value);
+        if (meName) {
+          profiles = { [meName]: legacy.value };
+          await saveProfilesStore(profiles);
+          await setActiveProfileName(meName);
+        }
+      }
+    }
+    const names = Object.keys(profiles);
+    if (names.length) {
+      let active = await getStoredActiveProfileName();
+      if (!active || !profiles[active]) active = names[0];
+      populateProfileSelect(profiles, active);
+      document.getElementById('rawInput').value = profiles[active];
+      await processText(profiles[active], { save: false });
       setStatus('Laatst opgeslagen data geladen.', 'ok');
     }
   } catch (e) {
